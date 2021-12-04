@@ -24,10 +24,7 @@ Add alias to config/app.php alias
 "QGetText" => Corbinjurgens\QGetText\Facade::class,
 ```
 
-Add middleware to Http/Kernel.php and use it at the routes you wantt to start up the gettext
-```
-'setlocale' => \Corbinjurgens\QGetText\SetLocale::class
-```
+Doesnt need any middleware to set locale as it will set on first use, and then listen for changes to apps locale
 
 Publish Config via
 
@@ -36,9 +33,9 @@ Publish Config via
 Configure via Corbinjurgens\QGetText\QGetTextContainer in a provider you like such as
 
 ```
-\Corbinjurgens\QGetText\QGetTextContainer::$emulated = true;// Set to emulated mode as opposed to native mode which is default
-\Corbinjurgens\QGetText\QGetTextContainer::$localeGetter = function(){
-	return \LaravelLocalization::getCurrentLocaleRegional();//if using mcamara/laravel-localization this is a way to get current locale in "en_US" format as is likely requirerd when using native gettext
+\Corbinjurgens\QGetText\QGetTextContainer::$emulated = true;// Set to emulated mode (my personal preference) as opposed to native mode (default but requires gettext installed)
+\Corbinjurgens\QGetText\QGetTextContainer::$localeGetter = function($locale){
+	return \LaravelLocalization::getSupportedLocales()[$locale]['regional'];//if using mcamara/laravel-localization this is a way to get the locale in "en_US" format, for example when the app locale will differ from gettext locale name as is often the case with native implementations. Or you can create your own array mapping
 };//Set custom locale getter if its different than just app()->getLocale()
 ```
 
