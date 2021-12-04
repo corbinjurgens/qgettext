@@ -3,12 +3,21 @@
 namespace Corbinjurgens\QGetText;
 
 use Closure;
-use Gettext\Loader\MoLoader;
 use Gettext\Translator;
 use Gettext\GettextTranslator;
+use Gettext\Generator\PoGenerator;
+use Gettext\Loader\LoaderInterface;
+use Gettext\Loader\PoLoader;
+use Gettext\Loader\MoLoader;
+use Gettext\Generator\GeneratorInterface;
+use Gettext\Generator\MoGenerator;
+use Gettext\Generator\ArrayGenerator;
+use Gettext\Scanner\PhpScanner;
+use Gettext\Translations;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Foundation\Events\LocaleUpdated;
-use Gettext\Generator\ArrayGenerator;
+use Symfony\Component\Finder\Finder;
+
 
 class QGetTextContainer
 {
@@ -48,7 +57,7 @@ class QGetTextContainer
 	}
 
 	/**
-	 * Set to a custom closure if you want to get locale from other than app()->getLocale();
+	 * Set to a custom closure if you want to modify locale received from app()->getLocale()
 	 */
 	public static $localeGetter;
 
@@ -158,7 +167,79 @@ class QGetTextContainer
 		return $translator->$name(...$arguments);
 	}
 
+	static $blade;
+
+	public static function getBladeCompiler(){
+		if (isset(static::$blade)){
+			return static::$blade;
+		}
+		$blade = new Blade(app('files'), config('view.compiled'));
+		return static::$blade = $blade;
+	}
 	public static function scan(){
 
+		$translations = [];
+		foreach(config('qgettext.domains') as $domain){
+			$translations[] = Translations::create($domain);
+		}
+		$phpScanner = new PhpScanner(...$translations);
+        $phpScanner->setDefaultDomain(static::getDefaultDomain());
+		$phpScanner->setFunctions(config('qgettext.scan.mapping'));
+
+		$finder = new Finder();
+        $finder->files()->in(config('qgettext.scan.in', base_path()))->name(config('qgettext.scan.pattern', '*.php'));
+
+        foreach($finder as $file){
+			if (\Str::endsWith($file, "blade.php")){
+				$template_str = \File::get($file);
+				$blade = static::getBladeCompiler();
+				$template_compiled = $blade->bladeCompile($template_str);
+				$phpScanner->scanString($template_compiled, $file);
+			}else{
+				$phpScanner->scanFile($file->getRealPath());
+			}
+           
+        }
+
+		$path = config('qgettext.path') . DIRECTORY_SEPARATOR . 'base';
+        foreach ($phpScanner->getTranslations() as $domain => $translations) {
+            \File::ensureDirectoryExists($path);
+			static::toPo($translations, $path . DIRECTORY_SEPARATOR . $domain . ".po");
+        }
+
+		return $path;
+
 	}
+
+	public static function fromPo(string $filename){
+		$loader = new PoLoader();
+		return static::from($filename, $loader);
+	}
+
+	public static function fromMo(string $filename){
+		$loader = new MoLoader();
+		return static::from($filename, $loader);
+	}
+
+	public static function from(string $filename, LoaderInterface $loader){
+		return $loader->loadFile($filename);
+	}
+
+	public static function toPo(Translations $translations, string $filename){
+		$generator = new PoGenerator();
+		return static::to($translations, $filename, $generator);
+	}
+
+	public static function toMo(Translations $translations, string $filename){
+		$generator = new MoGenerator();
+		return static::to($translations, $filename, $generator);
+	}
+
+	public static function to(Translations $translations, string $filename, GeneratorInterface $generator){
+		return $generator->generateFile($translations, $filename);
+	}
+
+
+
+
 }

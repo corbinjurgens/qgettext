@@ -20,6 +20,7 @@
             "Corbinjurgens\\QGetText\\": "src/"
         },
         "files": [
+            "src/helpers.php"
         ]
     },
 	"extra": {

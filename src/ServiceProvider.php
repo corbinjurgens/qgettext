@@ -32,9 +32,15 @@ class ServiceProvider extends BaseServiceProvider
      */
     public function boot()
     {
-		$this->publishes([
-			__DIR__.'/config/qgettext.php' => config_path('qgettext.php'),
-		], self::$name. '-config');
+      $this->publishes([
+        __DIR__.'/config/qgettext.php' => config_path('qgettext.php'),
+      ], self::$name. '-config');
+
+      if ($this->app->runningInConsole()) {
+        $this->commands([
+          Commands\Scan::class,
+        ]);
+      }
 		
     }
 }

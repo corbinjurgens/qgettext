@@ -4,7 +4,8 @@ return [
 	'default_domain' => 'messages',
 	'path' => resource_path('locale'),// without trailing slash
 	'domains' => [
-		'messages'
+		'messages',
+		'db'
 	],
 	'scan' => [
 		'in' => [
