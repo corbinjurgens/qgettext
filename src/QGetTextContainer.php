@@ -13,7 +13,9 @@ use Gettext\Generator\GeneratorInterface;
 use Gettext\Generator\MoGenerator;
 use Gettext\Generator\ArrayGenerator;
 use Gettext\Scanner\PhpScanner;
+use Gettext\Scanner\JsScanner;
 use Gettext\Translations;
+use Gettext\Merge;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Foundation\Events\LocaleUpdated;
 use Symfony\Component\Finder\Finder;
@@ -147,7 +149,7 @@ class QGetTextContainer
 		if (isset(static::$loaded_emulated[$locale][$domain])){
 			return static::$loaded_emulated[$locale][$domain];
 		}
-		$file = config('qgettext.path') . "/" . $locale . "/LC_MESSAGES/" . $domain . ".mo";
+		$file = config('qgettext.path') . DIRECTORY_SEPARATOR . $locale . "/LC_MESSAGES/" . $domain . ".mo";
 		if (!\File::exists($file)){
 			return static::$loaded_emulated[$locale][$domain] = false;
 		}
@@ -167,15 +169,11 @@ class QGetTextContainer
 		return $translator->$name(...$arguments);
 	}
 
-	static $blade;
-
-	public static function getBladeCompiler(){
-		if (isset(static::$blade)){
-			return static::$blade;
-		}
-		$blade = new Blade(app('files'), config('view.compiled'));
-		return static::$blade = $blade;
-	}
+	/**
+	 * Scan this sites files and upload the results to the shared location
+	 * ready to be edited via the UI either on this site or elsewhere that has
+	 * access to the shared location
+	 */
 	public static function scan(){
 
 		$translations = [];
@@ -184,31 +182,89 @@ class QGetTextContainer
 		}
 		$phpScanner = new PhpScanner(...$translations);
         $phpScanner->setDefaultDomain(static::getDefaultDomain());
-		$phpScanner->setFunctions(config('qgettext.scan.mapping'));
+		$phpScanner->setFunctions(config('qgettext.scan.php_mapping') ?? config('qgettext.scan.mapping'));
+
+		$jsScanner = new JsScanner(...$translations);
+        $jsScanner->setDefaultDomain(static::getDefaultDomain());
+		$jsScanner->setFunctions(config('qgettext.scan.js_mapping') ?? config('qgettext.scan.mapping'));
 
 		$finder = new Finder();
         $finder->files()->in(config('qgettext.scan.in', base_path()))->name(config('qgettext.scan.pattern', '*.php'));
 
         foreach($finder as $file){
-			if (\Str::endsWith($file, "blade.php")){
-				$template_str = \File::get($file);
-				$blade = static::getBladeCompiler();
-				$template_compiled = $blade->bladeCompile($template_str);
-				$phpScanner->scanString($template_compiled, $file);
-			}else{
-				$phpScanner->scanFile($file->getRealPath());
+			$filepath = $file->getRealPath();
+			// custom processing, can include a single file being scanned in multiple ways and will then continue to next file
+			foreach(config('qgettext.scan.custom', []) as $key => $value){
+				if (\Str::endsWith($filepath, $key)){
+					$custom_class = new $value();
+					$custom_class->loadScanners($phpScanner, $jsScanner);
+					$custom_class->scanFile($filepath);
+					continue 2;
+				}
 			}
-           
+
+			// php scanner
+			foreach(config('qgettext.scan.php', []) as $value){
+				if (\Str::endsWith($filepath, $value)){
+					$phpScanner->scanFile($filepath);
+					break;
+				}
+			}
+
+			// js scanner
+			foreach(config('qgettext.scan.js', []) as $value){
+				if (\Str::endsWith($filepath, $value)){
+					$jsScanner->scanFile($filepath);
+					break;
+				}
+			}
+			
         }
 
-		$path = config('qgettext.path') . DIRECTORY_SEPARATOR . 'base';
-        foreach ($phpScanner->getTranslations() as $domain => $translations) {
+		$path = static::basePath();
+        foreach ($translations as $translation) {
+			$domain = $translation->getDomain();
             \File::ensureDirectoryExists($path);
-			static::toPo($translations, $path . DIRECTORY_SEPARATOR . $domain . ".po");
+			static::toPo($translation, $path . DIRECTORY_SEPARATOR . $domain . ".po");
         }
 
 		return $path;
 
+	}
+
+	public static function path($path = null){
+		return config('qgettext.path') . (is_string($path) && $path !== "" ? (DIRECTORY_SEPARATOR . $path) : '');
+	}
+	
+	public static function basePath(){
+		return static::path('base');
+	}
+
+	public static function dump(){
+		foreach((new Finder())->files()->in(static::basePath()) as $file){
+			$domain = pathinfo($file->getRelativePathname(), PATHINFO_FILENAME);
+			$baseTranslations = static::fromPo($file->getRealPath());
+
+			foreach((new Finder())->directories()->in(static::path())->exclude('base')->depth(0) as $file){
+
+				$locale = $file->getRelativePathname();
+				$target = static::path($locale . DIRECTORY_SEPARATOR . "LC_MESSAGES" . DIRECTORY_SEPARATOR . $domain);
+
+				if (\File::exists($target . ".po")){
+					$targetTranslations = static::fromPo($target . ".po");
+					$targetTranslations = $targetTranslations->mergewith($baseTranslations, Merge::HEADERS_THEIRS | Merge::FLAGS_THEIRS | Merge::TRANSLATIONS_OURS);
+					//dd($targetTranslations);
+				}else{
+					$targetTranslations = $baseTranslations;
+				}
+
+				\File::ensureDirectoryExists(static::path($locale . DIRECTORY_SEPARATOR . "LC_MESSAGES"));
+				static::toPo($targetTranslations, $target . ".po");
+
+				static::toMo($targetTranslations, $target . ".mo");
+			}
+		}
+		
 	}
 
 	public static function fromPo(string $filename){
