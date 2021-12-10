@@ -1,6 +1,8 @@
 <?php
 return [
-	'source_locale' => 'en_GB',
+	'mode' => Corbinjurgens\QGetText\QGetTextContainer::NATIVE_MODE,
+	'max_emulated' => 3,// Max number of loaded languages at one time to prevent loading too many languages in memory. Set null to have no limit.
+	//'source_locale' => 'en_GB',
 	'default_domain' => 'messages',
 	// Where to load the current sites translations from and were to save to when syncing
 	// Note when using this package with git you should create the path folder used with some kind of gitignore so when

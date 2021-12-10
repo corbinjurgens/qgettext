@@ -23,7 +23,9 @@ use Symfony\Component\Finder\Finder;
 
 class QGetTextContainer
 {
-	static $emulated = false;
+
+	const NATIVE_MODE = 1;
+	const EMULATED_MODE = 2;
 
 	/**
 	 * Current locale set from applicaation
@@ -47,6 +49,15 @@ class QGetTextContainer
 		});
 		static::setLocale($locale ?? app()->getLocale());
 		static::$booted = true;
+
+		// Check config
+		$max_emulated = config('qgettext.max_emulated', null);
+		if (isset($max_emulated)){
+			$max_emulated = (int) $max_emulated;
+			if ($max_emulated === 0){
+				throw new \Exception("Max emulated must be null, or a number 1 or over");
+			}
+		}
 	}
 
 	/**
@@ -54,8 +65,12 @@ class QGetTextContainer
 	 */
 	public static function startup($locale = null){
 		static::boot($locale);
-		return static::$emulated ? static::startupEmulated($locale) : static::startupNative($locale);
+		return static::getMode() === static::EMULATED_MODE ? static::startupEmulated($locale) : static::startupNative($locale);
 
+	}
+	
+	public static function getMode(){
+		return config('qgettext.mode', static::NATIVE_MODE);
 	}
 
 	/**
@@ -110,6 +125,9 @@ class QGetTextContainer
 		'dpgettext' => 0,
 		'dnpgettext' => 0
 	];
+	
+	/** Starting up too many languages may cause memory issues. Use config qgettext.max_emulated to configure a max */
+	static $started_emulated_list = [];
 
 	/**
 	 * Prepare the translations instance freely without the php drama
@@ -120,13 +138,27 @@ class QGetTextContainer
 			return static::$translators_emulated[$locale];
 		}
 		
+		static::startupEmulatedShift($locale);
 		$translator = new Translator();
 		$translator->defaultDomain(static::getDefaultDomain());
 		return static::$translators_emulated[$locale] = $translator;
 	}
 
+	protected static function startupEmulatedShift($locale){
+		static::$started_emulated_list[] = $locale;
+		$limit = config('qgettext.max_emulated', null);
+		if (!isset($limit)){
+			return;
+		}
+		if ($limit >= count(static::$started_emulated_list)){
+			return;
+		}
+		$shited = array_shift(static::$started_emulated_list);
+		unset(static::$translators_emulated[$shited]);
+	}
+
 	public static function load($translator, $name, $arguments){
-		static::$emulated ? static::loadEmulated($translator, $name, $arguments) : static::loadNative($translator, $name, $arguments);
+		static::getMode() === static::EMULATED_MODE ? static::loadEmulated($translator, $name, $arguments) : static::loadNative($translator, $name, $arguments);
 	}
 
 	public static function loadNative($translator, $name, $arguments){
@@ -228,10 +260,39 @@ class QGetTextContainer
 			static::toPo($translation, $path . DIRECTORY_SEPARATOR . $domain . ".po");
         }
 
+		static::uploadBase();
+
 		return $path;
 
 	}
+	
+	public static function thisSite(){
+		return config('app.name');
+	}
 
+	/** 
+	 * Upload current sites base 
+	 */
+	public static function uploadBase(){
+		$disk = static::disk('shared');
+		$upload_base = static::diskPath('shared', static::thisSite() . DIRECTORY_SEPARATOR . 'base');
+		$finder = new Finder();
+		$uploaded = [];
+		foreach($finder->files()->in(static::basePath()) as $file){
+			$key = $upload_base . DIRECTORY_SEPARATOR . $file->getRelativePathname();
+			$uploaded[] = $key;
+			$stream = $file->openFile();
+			$disk->put($key, $stream);
+		}
+
+		foreach($disk->allFiles($upload_base) as $file){
+			if (!isset($uploaded[$file])){
+				$disk->delete($upload_base . DIRECTORY_SEPARATOR . $file);
+			}
+		}
+	}
+
+	/** Simply the locale cache to read locales from */
 	public static function path($path = null){
 		return config('qgettext.path') . (is_string($path) && $path !== "" ? (DIRECTORY_SEPARATOR . $path) : '');
 	}
@@ -240,6 +301,18 @@ class QGetTextContainer
 		return static::path('base');
 	}
 
+	/** edit or shared disk */
+	public static function disk($disk){
+		return \Storage::disk(config('qgettext.' . $disk . '_path.0'));
+	}
+
+	public static function diskPath($disk, $path = ""){
+		return  config('qgettext.' . $disk . '_path.1') . (is_string($path) && $path !== "" ? (DIRECTORY_SEPARATOR . $path) : '');
+	}
+
+	/**
+	 * Look at files in current sites locale, and save po to mo
+	 */
 	public static function dump(){
 		foreach((new Finder())->files()->in(static::basePath()) as $file){
 			$domain = pathinfo($file->getRelativePathname(), PATHINFO_FILENAME);

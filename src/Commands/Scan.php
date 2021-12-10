@@ -14,7 +14,7 @@ class Scan extends Command
    *
    * @var string
    */
-  protected $signature = 'gettext:scan';
+  protected $signature = 'gettext {mode=dump}';
 
   /**
    * The console command description.
@@ -40,8 +40,15 @@ class Scan extends Command
    */
   public function handle()
   {
-    $path = QGetText::scan();
-    $this->info("Conplete. Results saved to " . $path);
+    $mode = $this->argument('mode');
+    if ($mode == "scan"){
+      $path = QGetText::scan();
+      $this->info("Conplete. Results saved to " . $path);
+    }else if ($mode == "dump"){
+      QGetText::dump();
+      $this->info("Po converted to Mo");
+    }
+    
     return 0;
   }
 }
