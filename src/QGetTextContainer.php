@@ -5,16 +5,12 @@ namespace Corbinjurgens\QGetText;
 use Closure;
 use Gettext\Translator;
 use Gettext\GettextTranslator;
-use Gettext\Generator\PoGenerator;
-use Gettext\Loader\LoaderInterface;
-use Gettext\Loader\PoLoader;
 use Gettext\Loader\MoLoader;
-use Gettext\Generator\GeneratorInterface;
-use Gettext\Generator\MoGenerator;
 use Gettext\Generator\ArrayGenerator;
 use Gettext\Scanner\PhpScanner;
 use Gettext\Scanner\JsScanner;
-use Gettext\Translations;
+use Corbinjurgens\QGetText\Concerns\CustomTranslations as Translations;
+use Gettext\Translation;
 use Gettext\Merge;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Foundation\Events\LocaleUpdated;
@@ -23,6 +19,9 @@ use Symfony\Component\Finder\Finder;
 
 class QGetTextContainer
 {
+
+	use Concerns\LoadersAndGenerators;
+	use Concerns\Paths;
 
 	const NATIVE_MODE = 1;
 	const EMULATED_MODE = 2;
@@ -206,7 +205,9 @@ class QGetTextContainer
 	 * ready to be edited via the UI either on this site or elsewhere that has
 	 * access to the shared location
 	 */
-	public static function scan(){
+	public static function scan($command = null){
+
+		static::syncBase();
 
 		$translations = [];
 		foreach(config('qgettext.domains') as $domain){
@@ -253,21 +254,270 @@ class QGetTextContainer
 			
         }
 
-		$path = static::basePath();
+		$disk = static::pathDisk();
         foreach ($translations as $translation) {
 			$domain = $translation->getDomain();
-            \File::ensureDirectoryExists($path);
-			static::toPo($translation, $path . DIRECTORY_SEPARATOR . $domain . ".po");
+			$target = "base/$domain.po";
+			if ($disk->exists($target)){
+				$old = static::fromPo($disk->path($target));
+				$changes = static::compare($translation, $old, $command);
+				if ($changes === false){
+					$command->error("Process cancelled. Try again.");
+					return;
+				}
+				if ($changes){
+					static::updateCompare($changes, $domain);
+				}
+				static::flagsComments($translation, $old, $changes);
+			}else{
+				static::flagsComments($translation);
+			}
+			static::toPo($translation, $disk->path($target));
         }
 
 		static::uploadBase();
 
-		return $path;
+		return $disk->path("base");
 
 	}
-	
-	public static function thisSite(){
-		return config('app.name');
+
+	public static function flagsComments($translation, $old = null, $changes = null){
+		foreach($translation as $key => $value){
+			$target_key = array_search($key, $changes ?? []);
+			$changed = true;
+			if ($target_key === false){
+				$changed = false;
+				$target_key = $key;
+			}
+
+			$old_value = isset($old) ? $old->getTranslations()[$target_key] ?? null : null;
+			
+			if (isset($old_value)){
+				// set to old comments
+				$value = $translation->addOrMergeId($key, $old_value, Merge::COMMENTS_THEIRS | Merge::FLAGS_OURS);
+			}
+
+			$comments = $value->getComments()->toArray();
+
+			if (static::strpostFind($comments, "CREATED:") === false){
+				$value->getComments()->add("CREATED:" . now()->format("Y-m-d H:i:s"));
+			}
+
+			if ($changed === true){
+				$changed_max = static::strpostMax($comments, "CHANGED:");
+				$changed_max++;
+				$value->getComments()->add("CHANGED:{$changed_max}:" . $target_key);
+
+				if (($updated = static::strpostFind($comments)) !== false){
+					$value->getComments()->delete($updated);
+				}
+				$value->getComments()->add("UPDATED:" . now()->format("Y-m-d H:i:s"));
+			}
+		}
+	}
+
+	protected static function strpostFind($array, $search = "UPDATED:"){
+		foreach($array as $item){
+			if (strpos($item, $search) === 0){
+				return $item;
+			}
+		}
+		return false;
+	}
+
+	protected static function strpostCount($array, $search = "UPDATED:"){
+		$count = 0;
+		foreach($array as $item){
+			if (strpos($item, $search) === 0){
+				$count++;
+			}
+		}
+		return $count;
+	}
+
+	protected static function strpostMax($array, $search = "UPDATED:"){
+		$max = 0;
+		foreach($array as $item){
+			if (strpos($item, $search) === 0){
+				$current = explode(":", $item, 3);
+				if (isset($current[1]) && is_numeric($current[1])){
+					$current_num = (int) $current[1];
+					if ($current_num > $max){
+						$max = $current_num;
+					}
+				}
+			}
+		}
+		return $max;
+	}
+
+	/**
+	 * Compare old and new translation state,
+	 * if passing $command from a artisan command, it will use that to
+	 * ask user which new translation equates to old
+	 */
+	public static function compare($translations_new, $translations_existing, $command = null){
+		$trans_new = $translations_new->getTranslations();
+		$trans_new_only = [];
+		$trans_existing = $translations_existing->getTranslations();
+		foreach($trans_new as $k => $v){
+			if (!isset($trans_existing[$k])){
+				$trans_new_only[] = $k;
+			}
+		}
+
+		$trans_existing_only = [];
+		foreach($trans_existing as $k => $v){
+			$trans_existing_only[] = $k;
+		}
+		
+		if (!isset($command)){
+			return [$trans_existing_only, $trans_new_only];
+		}
+
+		// Command
+		$results = [];
+		$looper = $trans_new_only;
+		if (!$trans_new_only){
+			return [];
+		}
+		$total = count($looper);
+		$current = 1;
+		$command->info("Beginning merge process");
+		$command->info("Be sure to carefully check if any of the 'new' texts are actually changed text");
+		$command->comment("-------");
+		while(($new = array_shift($looper)) !== null){
+			$command->comment("$current of $total");
+			$command->info("See the following new text:");
+			$command->newLine();
+			$command->line($new);
+			$command->newLine();
+			$command->info("Is this new text changed from a previous text:");
+			$command->newLine();
+			foreach($trans_existing_only as $key => $old){
+				$command->info(($key + 1) . ":");
+				$command->line($old);
+			}
+
+			$res = $command->ask("Or is it unrelated? Enter the number or press enter to skip this text...\nTo view current texts references, enter 'info', or 'info 1' to view a specific previous text. Enter 'skip' to skip all");
+			while(!is_numeric($res)){
+				if (!$res){
+					$current++;
+					continue 2;
+				}
+				if ($res === "skip"){
+					return [];
+				}
+				if ($res === "info"){
+					$command->info(join("\n", static::outputInfo($trans_new[$new])));
+					$res = $command->ask("Enter the number or press enter to skip...");
+					continue;
+				}
+				if (strpos($res, "info") === 0){
+					$key = trim(substr($res, 4));
+					if (!is_numeric($key)){
+						$command->error("$key must be a number");
+						$res = $command->ask("Try again:");
+						continue;
+					}
+					if (!isset($trans_existing_only[$key - 1])){
+						$command->error("$key is not a valid option");
+						$res = $command->ask("Try again:");
+						continue;
+					}
+					$command->info(join("\n", static::outputInfo($trans_existing[$trans_existing_only[$key - 1]])));
+					$res = $command->ask("Enter the number or press enter to skip...");
+					continue;
+				}
+				$res = $command->ask("Try again:");
+			}
+
+			if (!isset($trans_existing_only[$res - 1])){
+				$command->error("This item was not found in the list");
+				array_unshift($looper, $new);
+				continue;
+			}
+
+			$old = $trans_existing_only[$res - 1];
+
+			// Definitely its a changed key
+			// Check that the references
+			$ref_new = $trans_new[$new]->getReferences()->toArray();
+			$ref_existing = $trans_existing[$old]->getReferences()->toArray();
+			if ($ref_new !== $ref_existing){
+				// References are different
+				$command->info("The references between old and new text is not the same. There is a chance you have missed updating one of the texts");
+				$command->newLine();
+
+				$command->table(
+					['Old text:', 'New text:'],
+					[
+						[
+							$old,
+							$new,
+						],
+						[
+							join(",", static::outputInfo($trans_existing[$old])),
+							join(",", static::outputInfo($trans_new[$new]))
+						]
+					]
+				);
+				$ask = $command->choice("Is everything OK? Press n to cancel process, or Y (default) to continue as is", ['Y', 'n'], 'Y');
+				if ($ask === 'n'){
+					return false;
+				}
+			}
+
+			$results[$old] = $new;
+			unset($trans_existing_only[$res - 1]);
+			$current++;
+		}
+		$command->info("All done");
+		return $results;
+		
+
+	}
+
+	/**
+	 * Take a changes array (old key => new key)
+	 */
+	public static function updateCompare($changes, $domain){
+		$changesBefore = [];
+		if (static::pathDisk()->exists("base/{$domain}_changes.json")){
+			$changesBefore = json_decode(static::pathDisk()->get("base/{$domain}_changes.json"), true);
+		}
+		$changesBefore[] = $changes;
+		static::pathDisk()->put("base/{$domain}_changes.json", json_encode($changesBefore));
+	}
+
+	protected static function outputInfo($translation){
+		$res = [];
+
+		$join = array_map(function($item){
+			return join(",", $item);
+		},$translation->getReferences()->toArray());
+		foreach($join as $k => $v){
+			$res[] = $k .":" . $v;
+		}
+		return $res;
+
+	}
+
+	/**
+	 * Download current sites base
+	 */
+	public static function syncBase(){
+		$path = static::pathDisk();
+		$path->deleteDirectory('base');
+
+		$shared = static::disk('shared');
+		$shared_base = static::diskPath('shared', static::thisSite(), 'base');
+
+		foreach($shared->allFiles($shared_base) as $file){
+			$stream = $shared->readStream($file);
+			$relativePath = str_replace($shared_base . DIRECTORY_SEPARATOR, '', $file);
+			$path->put("base/$relativePath", $stream);
+		}
 	}
 
 	/** 
@@ -276,12 +526,11 @@ class QGetTextContainer
 	public static function uploadBase(){
 		$disk = static::disk('shared');
 		$upload_base = static::diskPath('shared', static::thisSite() . DIRECTORY_SEPARATOR . 'base');
-		$finder = new Finder();
 		$uploaded = [];
-		foreach($finder->files()->in(static::basePath()) as $file){
+		foreach((new Finder())->files()->in(static::basePath()) as $file){
+			$stream = fopen($file->getRealPath(), "r");
 			$key = $upload_base . DIRECTORY_SEPARATOR . $file->getRelativePathname();
 			$uploaded[] = $key;
-			$stream = $file->openFile();
 			$disk->put($key, $stream);
 		}
 
@@ -290,24 +539,6 @@ class QGetTextContainer
 				$disk->delete($upload_base . DIRECTORY_SEPARATOR . $file);
 			}
 		}
-	}
-
-	/** Simply the locale cache to read locales from */
-	public static function path($path = null){
-		return config('qgettext.path') . (is_string($path) && $path !== "" ? (DIRECTORY_SEPARATOR . $path) : '');
-	}
-	
-	public static function basePath(){
-		return static::path('base');
-	}
-
-	/** edit or shared disk */
-	public static function disk($disk){
-		return \Storage::disk(config('qgettext.' . $disk . '_path.0'));
-	}
-
-	public static function diskPath($disk, $path = ""){
-		return  config('qgettext.' . $disk . '_path.1') . (is_string($path) && $path !== "" ? (DIRECTORY_SEPARATOR . $path) : '');
 	}
 
 	/**
@@ -338,34 +569,6 @@ class QGetTextContainer
 			}
 		}
 		
-	}
-
-	public static function fromPo(string $filename){
-		$loader = new PoLoader();
-		return static::from($filename, $loader);
-	}
-
-	public static function fromMo(string $filename){
-		$loader = new MoLoader();
-		return static::from($filename, $loader);
-	}
-
-	public static function from(string $filename, LoaderInterface $loader){
-		return $loader->loadFile($filename);
-	}
-
-	public static function toPo(Translations $translations, string $filename){
-		$generator = new PoGenerator();
-		return static::to($translations, $filename, $generator);
-	}
-
-	public static function toMo(Translations $translations, string $filename){
-		$generator = new MoGenerator();
-		return static::to($translations, $filename, $generator);
-	}
-
-	public static function to(Translations $translations, string $filename, GeneratorInterface $generator){
-		return $generator->generateFile($translations, $filename);
 	}
 
 
