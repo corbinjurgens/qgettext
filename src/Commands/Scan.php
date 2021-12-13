@@ -40,14 +40,6 @@ class Scan extends Command
    */
   public function handle()
   {
-    /*
-    $res = QGetText::fromPo(QGetText::basePath("messages2.po"));
-    $res2 = QGetText::fromPo(QGetText::basePath("messages.po"));
-    $rsss = QGetText::compare($res, $res2, $this);
-    dd($rsss);
-
-    exit;
-    */
 
     $mode = $this->argument('mode');
     if ($mode == "scan"){
@@ -55,7 +47,9 @@ class Scan extends Command
       if ($path){
         $this->info("Complete");
       }
-
+    }else if ($mode == "sync"){
+      QGetText::sync();// TODO
+      QGetText::dump();
     }else if ($mode == "dump"){
       QGetText::dump();
       $this->info("Po converted to Mo");

@@ -35,6 +35,11 @@ class ServiceProvider extends BaseServiceProvider
       $this->publishes([
         __DIR__.'/config/qgettext.php' => config_path('qgettext.php'),
       ], self::$name. '-config');
+      
+      if (config('qgettext.editor')){
+        $this->loadMigrationsFrom(__DIR__.'/migrations');
+        $this->loadViewsFrom(__DIR__.'/views', 'qgettext');
+      }
 
       if ($this->app->runningInConsole()) {
         $this->commands([

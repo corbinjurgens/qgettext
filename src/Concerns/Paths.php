@@ -9,9 +9,6 @@ trait Paths {
 	 * CURRENT SITE
 	 * ===
 	 */
-	public static function thisSite(){
-		return config('app.name');
-	}
 
 	/** Simply the locale cache to read locales from */
 	public static function path(...$paths){
@@ -52,21 +49,5 @@ trait Paths {
 			config('qgettext.' . $disk . '_path.1'),
 			...$paths
 		);
-	}
-
-
-	public static function appendToPath(...$paths){
-		$result = [];
-		foreach($paths as $path){
-			if (!is_string($path)){
-				continue;
-			}
-			if ($path === ""){
-				continue;
-			}
-			$result[] = trim($path, DIRECTORY_SEPARATOR);
-
-		}
-		return join(DIRECTORY_SEPARATOR, $result);
 	}
 }

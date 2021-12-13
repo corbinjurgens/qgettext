@@ -1,5 +1,8 @@
 <?php
 return [
+	// Use a different identifier for this site to keep track of its translations. Otherwise app.name setting will be used
+	//'identifier' => 'site',
+
 	'mode' => Corbinjurgens\QGetText\QGetTextContainer::NATIVE_MODE,
 	'max_emulated' => 3,// Max number of loaded languages at one time to prevent loading too many languages in memory. Set null to have no limit.
 	'source_locale' => 'en_US',
@@ -54,6 +57,8 @@ return [
 		//'js_mapping' => []
 		//'php_mapping' => []
 	],
+	// Set true if this site is to also be used as an editor. Set to false if you plan to only have one other site to edit many sites and this site just uploads and syncs
+	'editor' => true,
 	// Storage disk and path of where to upload this sites data, and where to look when editing uploaded sites translations
 	// It is highly recommended to use an s3 storage location so that you can keep your translations synced even between local and production
 	'shared_path' => [
@@ -64,7 +69,7 @@ return [
 	'edit_path' => [
 		'local',// disk name, should be a local driver disk as this is where files will be copied to and from before being uploaded to the shared_path
 		'locale_editor'// path inside disk
-	]
+	],
 
 	
 ];
