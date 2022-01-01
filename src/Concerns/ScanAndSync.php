@@ -39,6 +39,7 @@ trait ScanAndSync {
         foreach($finder as $file){
 			$filepath = $file->getRealPath();
 			// custom processing, can include a single file being scanned in multiple ways and will then continue to next file
+			// used for blade files to first parse into raw php, then check
 			foreach(config('qgettext.scan.custom', []) as $key => $value){
 				if (\Str::endsWith($filepath, $key)){
 					$custom_class = new $value();
@@ -257,6 +258,18 @@ trait ScanAndSync {
 		if (empty($changes)){
 			return;
 		}
+		$changesBefore = [];
+		if (static::pathDisk()->exists("base/{$domain}_changes.json")){
+			$changesBefore = json_decode(static::pathDisk()->get("base/{$domain}_changes.json"), true);
+		}
+		$changesBefore[] = $changes;
+		static::pathDisk()->put("base/{$domain}_changes.json", json_encode($changesBefore));
+	}
+
+	/**
+	 * Take a changes array (old key => new key)
+	 */
+	public static function updateCompare($changes, $domain){
 		$changesBefore = [];
 		if (static::pathDisk()->exists("base/{$domain}_changes.json")){
 			$changesBefore = json_decode(static::pathDisk()->get("base/{$domain}_changes.json"), true);
