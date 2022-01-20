@@ -16,6 +16,8 @@ trait ScanAndSync {
 	 * Scan this sites files and upload the results to the shared location
 	 * ready to be edited via the UI either on this site or elsewhere that has
 	 * access to the shared location
+	 * 
+	 * for now only possible to run from an artisan command due to merging changes
 	 */
 	public static function scan($command = null){
 
@@ -270,6 +272,7 @@ trait ScanAndSync {
 	 * Take a changes array (old key => new key)
 	 */
 	public static function updateCompare($changes, $domain){
+		// TODO check again that the domain hasnt been just been compared by another user
 		$changesBefore = [];
 		if (static::pathDisk()->exists("base/{$domain}_changes.json")){
 			$changesBefore = json_decode(static::pathDisk()->get("base/{$domain}_changes.json"), true);

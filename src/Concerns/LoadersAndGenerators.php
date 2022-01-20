@@ -13,18 +13,22 @@ use Gettext\Translations;
 
 trait LoadersAndGenerators {
 
-	public static function fromPo(string $filename){
+	public static function fromPo(string $filename, $domain = null){
 		$loader = new PoLoader();
-		return static::from($filename, $loader);
+		return static::from($filename, $loader, $domain);
 	}
 
-	public static function fromMo(string $filename){
+	public static function fromMo(string $filename, $domain = null){
 		$loader = new MoLoader();
-		return static::from($filename, $loader);
+		return static::from($filename, $loader, $domain);
 	}
 
-	public static function from(string $filename, LoaderInterface $loader){
-		return CustomTranslations::move($loader->loadFile($filename));
+	public static function from(string $filename, LoaderInterface $loader, $domain = null){
+		$res = CustomTranslations::move($loader->loadFile($filename));
+		if (isset($domain)){
+			$res->setDomain($domain);
+		}
+		return $res;
 	}
 
 	public static function toPo(Translations $translations, string $filename){

@@ -7,7 +7,6 @@ use Illuminate\Foundation\Events\LocaleUpdated;
 use Gettext\GettextTranslator;
 use Gettext\Translator;
 
-use Gettext\Loader\MoLoader;
 use Gettext\Generator\ArrayGenerator;
 
 trait StartupAndLoad {
@@ -170,10 +169,8 @@ trait StartupAndLoad {
 		if (!\File::exists($file)){
 			return static::$loaded_emulated[$locale][$domain] = false;
 		}
-		$loader = new MoLoader();
 
-		$loading = $loader->loadFile($file);
-		$loading->setDomain($domain);
+		$loading = static::fromMo($file, $domain);
 		$arrayGenerator = new ArrayGenerator();
 		$translator->addTranslations($arrayGenerator->generateArray($loading));
 		return static::$loaded_emulated[$locale][$domain] = true;

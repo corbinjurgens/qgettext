@@ -12,7 +12,6 @@ class QGetTextContainer
 	use Concerns\Paths;
 	use Concerns\StartupAndLoad;
 	use Concerns\Tools;
-	use Concerns\Routes;
 	
 	public function __call($name, $arguments){
 		$translator = static::startup();
@@ -21,6 +20,14 @@ class QGetTextContainer
 	}
 
 	use Concerns\ScanAndSync;
+
+	static $editor;
+	public static function editor(){
+		if (!isset(static::$editor)){
+			static::$editor = new Editor\Editor();
+		}
+		return static::$editor;
+	}
 
 
 }
