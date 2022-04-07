@@ -1,6 +1,11 @@
 <?php
 return [
+	//--------
+	// User
+	//--------
+
 	// Use a different identifier for this site to keep track of its translations. Otherwise app.name setting will be used
+	// This is good if your app.name is differing between enviroments, or will change. 
 	//'identifier' => 'site',
 
 	'mode' => Corbinjurgens\QGetText\QGetTextContainer::NATIVE_MODE,
@@ -57,6 +62,11 @@ return [
 		//'js_mapping' => []
 		//'php_mapping' => []
 	],
+
+	//--------
+	// Editor
+	//--------
+
 	// Set true if this site is to also be used as an editor. Set to false if you plan to only have one other site to edit many sites and this site just uploads and syncs
 	'editor' => true,
 	// Storage disk and path of where to upload this sites data, and where to look when editing uploaded sites translations

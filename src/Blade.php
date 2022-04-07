@@ -15,7 +15,12 @@ class Blade extends LaravelBladeCompiler
 
    public function scanFile(string $filename){
       $template_str = \File::get($filename);
-      $template_compiled = parent::compileString($template_str);
+      try{
+         $template_compiled = parent::compileString($template_str);
+      }catch(\Throwable $e){
+         return;
+      }
+      
       $this->phpScanner->scanString($template_compiled, $filename);
    }
 }

@@ -37,7 +37,7 @@ trait ScanAndSync {
 
 		$finder = new Finder();
         $finder->files()->in(config('qgettext.scan.in', base_path()))->name(config('qgettext.scan.pattern', '*.php'));
-
+		
         foreach($finder as $file){
 			$filepath = $file->getRealPath();
 			// custom processing, can include a single file being scanned in multiple ways and will then continue to next file
@@ -69,12 +69,13 @@ trait ScanAndSync {
 			
         }
 
-		$disk = static::pathDisk();
+		$disk = static::disk("local")->setBase("base");
+		if (!$disk->exists('')) $disk->makeDirectory('');
         foreach ($translations as $translation) {
 			$domain = $translation->getDomain();
-			$target = "base/$domain.po";
-			if ($disk->exists($target)){
-				$old = static::fromPo($disk->path($target));
+			$disk->setFile("$domain.po");
+			if ($disk->exists()){
+				$old = static::fromPo($disk->path());
 				$changes = static::compare($translation, $old, $command);
 				if ($changes === false){
 					$command->error("Process cancelled. Try again.");
@@ -83,16 +84,17 @@ trait ScanAndSync {
 				if ($changes){
 					static::updateCompare($changes, $domain);
 				}
-				static::flagsComments($translation, $old, $changes);
-			}else{
-				static::flagsComments($translation);
 			}
-			static::toPo($translation, $disk->path($target));
+			static::toPo($translation, $disk->path());
         }
 
+		if (!static::timeCheck()){
+			$command->error('The files were updated in the time you downloaded and edited them. You must scan again.');
+			return;
+		}
 		static::uploadBase();
 
-		return $disk->path("base");
+		return $disk->clearFile()->path('');
 
 	}
 
@@ -256,29 +258,18 @@ trait ScanAndSync {
 	/**
 	 * Take a changes array (old key => new key)
 	 */
-	public static function save($changes, $domain){
-		if (empty($changes)){
-			return;
-		}
-		$changesBefore = [];
-		if (static::pathDisk()->exists("base/{$domain}_changes.json")){
-			$changesBefore = json_decode(static::pathDisk()->get("base/{$domain}_changes.json"), true);
-		}
-		$changesBefore[] = $changes;
-		static::pathDisk()->put("base/{$domain}_changes.json", json_encode($changesBefore));
+	public static function updateCompare($changes, $domain){
+		static::updateData(function($data) use ($changes, $domain){
+			if (!isset($data['domains'][$domain]['changes'])) $data['domains'][$domain]['changes'] = [];
+			$data['domains'][$domain]['changes'][] = $changes;
+			return $data;
+		});
 	}
 
-	/**
-	 * Take a changes array (old key => new key)
-	 */
-	public static function updateCompare($changes, $domain){
-		// TODO check again that the domain hasnt been just been compared by another user
-		$changesBefore = [];
-		if (static::pathDisk()->exists("base/{$domain}_changes.json")){
-			$changesBefore = json_decode(static::pathDisk()->get("base/{$domain}_changes.json"), true);
-		}
-		$changesBefore[] = $changes;
-		static::pathDisk()->put("base/{$domain}_changes.json", json_encode($changesBefore));
+	public static function updateData($closure, $disk = null){
+		$disk = $disk ?? static::disk('local')->setBase('base')->setFile("data.json");
+		$contents = $closure($disk->exists() ? json_decode($disk->get(), true) : []);
+		$disk->put(json_encode($contents));
 	}
 
 	protected static function outputInfo($translation){
@@ -298,36 +289,64 @@ trait ScanAndSync {
 	 * Download current sites base
 	 */
 	public static function syncBase(){
-		$path = static::pathDisk();
+		$path = static::disk('local');
 		$path->deleteDirectory('base');
 
-		$shared = static::disk('shared');
-		$shared_base = static::diskPath('shared', static::thisSite(), 'base');
+		$shared = static::disk('shared')->shiftBase(static::thisSite());
 
-		foreach($shared->allFiles($shared_base) as $file){
-			$stream = $shared->readStream($file);
-			$relativePath = str_replace($shared_base . DIRECTORY_SEPARATOR, '', $file);
+		foreach($shared->allFiles('') as $file){
+			$stream = $shared->rawReadStream($file);
+			$relativePath = basename($file);
 			$path->put("base/$relativePath", $stream);
 		}
+	}
+
+	/**
+	 * When uploading, check if there hasnt been another person editing, then update
+	 */
+	public static function timeCheck(){
+		$result = null;
+		$time = null;
+		$shared = static::disk('shared')->shiftBase(static::thisSite())->setFile('data.json');
+
+		if ($shared->exists()){
+			$data = json_decode($shared->get(), true);
+			if (isset($data['updated'])) $time = \Carbon\Carbon::parse($data['updated']);
+		}
+
+		static::updateData(function($data) use ($time, &$result){
+			if (isset($data['updated'])){
+				$compare = \Carbon\Carbon::parse($data['updated']);
+				if (!$time->eq($compare)) {
+					$result = false;
+					return $data;
+				}
+			}
+			$data['updated'] = \Carbon\Carbon::now()->timestamp;
+			return $data;
+			
+		});
+		return $result ?? true;
+
 	}
 
 	/** 
 	 * Upload current sites base 
 	 */
 	public static function uploadBase(){
-		$disk = static::disk('shared');
-		$upload_base = static::diskPath('shared', static::thisSite() . DIRECTORY_SEPARATOR . 'base');
+		$disk = static::disk('shared')->shiftBase(static::thisSite());
+
 		$uploaded = [];
 		foreach((new Finder())->files()->in(static::basePath()) as $file){
 			$stream = fopen($file->getRealPath(), "r");
-			$key = $upload_base . DIRECTORY_SEPARATOR . $file->getRelativePathname();
-			$uploaded[] = $key;
+			$key = $file->getRelativePathname();
+			$uploaded[$key] = true;
 			$disk->put($key, $stream);
 		}
 
-		foreach($disk->allFiles($upload_base) as $file){
-			if (!isset($uploaded[$file])){
-				$disk->delete($upload_base . DIRECTORY_SEPARATOR . $file);
+		foreach($disk->allFiles('') as $file){
+			if (!isset($uploaded[basename($file)])){
+				$disk->rawDelete($file);
 			}
 		}
 	}
@@ -336,27 +355,26 @@ trait ScanAndSync {
 	 * Look at files in current sites locale, and save po to mo
 	 */
 	public static function dump(){
-		foreach((new Finder())->files()->in(static::basePath()) as $file){
+		$disk = static::disk('local');
+		foreach((new Finder())->files()->in($disk->path('base')) as $file){
 			$domain = pathinfo($file->getRelativePathname(), PATHINFO_FILENAME);
 			$baseTranslations = static::fromPo($file->getRealPath());
 
 			foreach((new Finder())->directories()->in(static::path())->exclude('base')->depth(0) as $file){
 
 				$locale = $file->getRelativePathname();
-				$target = static::path($locale . DIRECTORY_SEPARATOR . "LC_MESSAGES" . DIRECTORY_SEPARATOR . $domain);
+				$disk->shiftBase($locale, 'LC_MESSAGES');
+				if (!$disk->exists('')) $disk->makeDirectory('');
 
-				if (\File::exists($target . ".po")){
-					$targetTranslations = static::fromPo($target . ".po");
+				if ($disk->exists($domain . ".po")){
+					$targetTranslations = static::fromPo($disk->path($domain . '.po'));
 					$targetTranslations = $targetTranslations->mergewith($baseTranslations, Merge::HEADERS_THEIRS | Merge::FLAGS_THEIRS | Merge::TRANSLATIONS_OURS);
-					//dd($targetTranslations);
 				}else{
 					$targetTranslations = $baseTranslations;
 				}
 
-				\File::ensureDirectoryExists(static::path($locale . DIRECTORY_SEPARATOR . "LC_MESSAGES"));
-				static::toPo($targetTranslations, $target . ".po");
-
-				static::toMo($targetTranslations, $target . ".mo");
+				static::toPo($targetTranslations, $disk->path($domain . '.po'));
+				static::toMo($targetTranslations, $disk->path($domain . '.mo'));
 			}
 		}
 		

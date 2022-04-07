@@ -1,3 +1,11 @@
+# Introduction
+
+This plugin can be used as a "user", "editor", or both
+
+A user means the application scans itself, and uploads the results to the declared shared location
+An editor views the resulting files and allowes editing and saving for the user to then download
+
+
 # Setup
 ## Manual Installation
 
@@ -52,9 +60,15 @@ Configure via Corbinjurgens\QGetText\QGetTextContainer in a provider you like su
 "gettext/translator": "^1.0"
 ```
 
+## Preparation
+
+Migrate your translations to gettext, such as changing all occurences of __('Translation') to _('Translation')
+
+Set your chosen upload location via config qgettext.shared_path. An S3 location is recommended but not required
+
 ## Usage
 
-After migrating your translations to gettext, such as changing all occurences of __('Translation') to _('Translation'), scan your site via php artisan gettext scan. 
+Run `php artisan gettext scan` and your site will be scanned, and the result will be uploaded to the shared location
 
 TODO Use the editor to wherever it is you have it set to upload the scan results. Perhaps in the same site? Fill in your translations and other configurations
 
