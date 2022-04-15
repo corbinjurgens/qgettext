@@ -69,64 +69,45 @@ trait ScanAndSync {
 			
         }
 
-		$disk = static::disk("local")->setBase("base");
+		$disk = static::disk("local")->shiftBase('base');
 		if (!$disk->exists('')) $disk->makeDirectory('');
         foreach ($translations as $translation) {
 			$domain = $translation->getDomain();
 			$disk->setFile("$domain.po");
-			if ($disk->exists()){
-				$old = static::fromPo($disk->path());
-				$changes = static::compare($translation, $old, $command);
-				if ($changes === false){
-					$command->error("Process cancelled. Try again.");
-					return;
-				}
-				if ($changes){
-					static::updateCompare($changes, $domain);
-				}
-			}
 			static::toPo($translation, $disk->path());
         }
 
-		if (!static::timeCheck()){
-			$command->error('The files were updated in the time you downloaded and edited them. You must scan again.');
-			return;
-		}
 		static::uploadBase();
 
 		return $disk->clearFile()->path('');
 
 	}
 
-	public static function flagsComments($translation, $old = null, $changes = null){
-		$now = now()->format("Y-m-d H:i:s");
-		foreach($translation as $key => $value){
-			$target_key = array_search($key, $changes ?? []);
-			$changed = true;
-			if ($target_key === false){
-				$changed = false;
-				$target_key = $key;
-			}
+	/** 
+	 * Upload current sites base 
+	 */
+	public static function uploadBase(){
+		$disk = static::disk('shared')->shiftBase(static::thisSite());
 
-			$old_value = isset($old) ? $old->getTranslations()[$target_key] ?? null : null;
-			
-			if (isset($old_value)){
-				// set to old comments
-				$value = $translation->addOrMergeId($key, $old_value, Merge::COMMENTS_THEIRS | Merge::FLAGS_OURS);
-			}
+		$uploaded = [];
+		$local = static::disk('local')->shiftBase('base')->setFile('');
+		foreach($local->_files() as $file){
+			$key = basename($file->path());
+			$uploaded[$key] = true;
+			$disk->put($key, $file->readStream());
+		}
 
-			$comments = $value->getComments()->toArray();
-
-			if (static::strpostFind($comments, "CREATED:") === false){
-				$value->getComments()->add("CREATED:" . $now);
-				$value->getComments()->add("UPDATED:" . $now);
-			}
-
-			if ($changed === true){
-				$value->getComments()->add("UPDATED:" . $now);
+		foreach($disk->_allFiles('') as $file){
+			if (!isset($uploaded[basename($file->path())])){
+				$file->delete();
 			}
 		}
 	}
+
+
+
+
+
 
 	/**
 	 * Compare old and new translation state,
@@ -267,7 +248,7 @@ trait ScanAndSync {
 	}
 
 	public static function updateData($closure, $disk = null){
-		$disk = $disk ?? static::disk('local')->setBase('base')->setFile("data.json");
+		$disk = $disk ?? static::disk('local')->shiftBase('base')->setFile("data.json");
 		$contents = $closure($disk->exists() ? json_decode($disk->get(), true) : []);
 		$disk->put(json_encode($contents));
 	}
@@ -282,7 +263,6 @@ trait ScanAndSync {
 			$res[] = $k .":" . $v;
 		}
 		return $res;
-
 	}
 
 	/**
@@ -327,28 +307,6 @@ trait ScanAndSync {
 			
 		});
 		return $result ?? true;
-
-	}
-
-	/** 
-	 * Upload current sites base 
-	 */
-	public static function uploadBase(){
-		$disk = static::disk('shared')->shiftBase(static::thisSite());
-
-		$uploaded = [];
-		foreach((new Finder())->files()->in(static::basePath()) as $file){
-			$stream = fopen($file->getRealPath(), "r");
-			$key = $file->getRelativePathname();
-			$uploaded[$key] = true;
-			$disk->put($key, $stream);
-		}
-
-		foreach($disk->allFiles('') as $file){
-			if (!isset($uploaded[basename($file)])){
-				$disk->rawDelete($file);
-			}
-		}
 	}
 
 	/**

@@ -72,13 +72,8 @@ return [
 	// Storage disk and path of where to upload this sites data, and where to look when editing uploaded sites translations
 	// It is highly recommended to use an s3 storage location so that you can keep your translations synced even between local and production
 	'shared_path' => [
-		'local',//disk name, recommend an disk which is a s3 driver but default is the local disk which a local driver
+		'local',//disk name, recommend a disk which is a s3 driver but default is the local disk which a local driver
 		'locale'//path inside disk
-	],
-	// Storage disk and path of a local path when used as the gettext editor, where to save files to for editing before finally saving to the shared_path
-	'edit_path' => [
-		'local',// disk name, should be a local driver disk as this is where files will be copied to and from before being uploaded to the shared_path
-		'locale_editor'// path inside disk
 	],
 
 	

@@ -2,6 +2,8 @@
 
 namespace Corbinjurgens\QGetText\Concerns;
 
+use Corbinjurgens\QGetText\QGetTextContainer;
+
 /** 
  * Depends on Tools trait
  */
@@ -36,10 +38,6 @@ trait Paths {
 			'driver' => 'local',
 			'root' => config('qgettext.path', resource_path('locale'))
 		]);
-	}
-
-	public static function basePath(...$paths){
-		return static::path('base', ...$paths);
 	}
 
 	/**
@@ -87,6 +85,10 @@ trait Paths {
 				return $this;
 			}
 
+			public function relativePath(){
+				return QGetTextContainer::appendToPath($this->base, $this->file);
+			}
+
 			public function __call(string $name, array $arguments){
 				if (strpos($name, 'raw') === 0){
 					$function = \Str::camel(substr($name, 3));
@@ -99,7 +101,31 @@ trait Paths {
 				if (isset($arguments[0])){
 					$arguments[0] = \QGetText::appendToPath($this->base, ($arguments[0] ?? ''));
 				}
+				if (isset(static::$function_map[$name])){
+					list($func, $arg) = static::$function_map[$name];
+					//dd($func, $arg);
+					return $this->$func($name, $arguments, ...$arg);
+				}
 				return $this->disk->{$name}(...$arguments);
+			}
+
+			public static $function_map = [
+				'_files' => ['customFiles', ['files', true]],
+				'_allFiles' => ['customFiles', ['allFiles', true]],
+			];
+
+			public function customFiles($name, $arguments, ...$options){
+				list($func, $type) = $options;
+				$res = $this->disk->{$func}(...$arguments);
+				$base = $this->relativePath();
+				$base_count = strlen($base) ? count(explode(DIRECTORY_SEPARATOR, $base)) : 0;
+				$instance = $this;
+				return array_map(function($item) use ($base, $instance, $base_count){
+					$item_path = explode(DIRECTORY_SEPARATOR, $item);
+					$base_path = array_slice($item_path, 0, $base_count);
+					$end_path = array_slice($item_path, $base_count);
+					return $instance->clone()->setBase(join(DIRECTORY_SEPARATOR, $base_path))->setFile(join(DIRECTORY_SEPARATOR, $end_path));
+				}, $res);
 			}
 		};
 
