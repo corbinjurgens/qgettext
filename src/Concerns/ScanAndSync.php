@@ -3,10 +3,10 @@
 namespace Corbinjurgens\QGetText\Concerns;
 
 use Corbinjurgens\QGetText\Concerns\CustomTranslations as Translations;
+use Gettext\Translation;
 
 use Gettext\Scanner\PhpScanner;
 use Gettext\Scanner\JsScanner;
-use Gettext\Translation;
 use Gettext\Merge;
 use Symfony\Component\Finder\Finder;
 
@@ -71,7 +71,9 @@ trait ScanAndSync {
 
 		$disk = static::disk("local")->shiftBase('base');
 		if (!$disk->exists('')) $disk->makeDirectory('');
+		//dd($translations);//TEST
         foreach ($translations as $translation) {
+			static::exampleSetHeaders($translation);////TEST
 			$domain = $translation->getDomain();
 			$disk->setFile("$domain.po");
 			static::toPo($translation, $disk->path());
@@ -81,6 +83,11 @@ trait ScanAndSync {
 
 		return $disk->clearFile()->path('');
 
+	}
+
+	public static function exampleSetHeaders(Translations $translations){
+		$translations->setLanguage('de');
+		$translations->getHeaders()->setPluralForm(2, "(n != 1)");
 	}
 
 	/** 

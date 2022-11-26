@@ -8,7 +8,7 @@ return [
 	// This is good if your app.name is differing between enviroments, or will change. 
 	//'identifier' => 'site',
 
-	'mode' => Corbinjurgens\QGetText\QGetTextContainer::NATIVE_MODE,
+	'mode' => Corbinjurgens\QGetText\QGetTextContainer::EMULATED_MODE,
 	'max_emulated' => 3,// Max number of loaded languages at one time to prevent loading too many languages in memory. Set null to have no limit.
 	'source_locale' => 'en_US',
 	'default_domain' => 'messages',
@@ -61,19 +61,6 @@ return [
 		],
 		//'js_mapping' => []
 		//'php_mapping' => []
-	],
-
-	//--------
-	// Editor
-	//--------
-
-	// Set true if this site is to also be used as an editor. Set to false if you plan to only have one other site to edit many sites and this site just uploads and syncs
-	'editor' => true,
-	// Storage disk and path of where to upload this sites data, and where to look when editing uploaded sites translations
-	// It is highly recommended to use an s3 storage location so that you can keep your translations synced even between local and production
-	'shared_path' => [
-		'local',//disk name, recommend a disk which is a s3 driver but default is the local disk which a local driver
-		'locale'//path inside disk
 	],
 
 	
