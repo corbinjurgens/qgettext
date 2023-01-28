@@ -23,27 +23,6 @@ trait StartupAndLoad {
 	/** Last used native locale, useed to check if current gettext locale needs to be updated via setlocale() */
 	static $locale_native;
 
-	public static function boot($locale = null){
-		if (static::$booted === true){
-			return;
-		}
-		// Listen to any later locale updates
-		Event::listen(function(LocaleUpdated $event){
-			static::setLocale($event->locale);
-		});
-		static::setLocale($locale ?? app()->getLocale());
-		static::$booted = true;
-
-		// Check config
-		$max_emulated = config('qgettext.max_emulated', null);
-		if (isset($max_emulated)){
-			$max_emulated = (int) $max_emulated;
-			if ($max_emulated === 0){
-				throw new \Exception("Max emulated must be null, or a number 1 or over");
-			}
-		}
-	}
-
 	/**
 	 * Set up current locale ready for using ggettext
 	 */
@@ -57,8 +36,21 @@ trait StartupAndLoad {
 		return config('qgettext.mode', static::NATIVE_MODE);
 	}
 
+	protected static function boot($locale = null){
+		if (static::$booted === true){
+			return;
+		}
+		// Listen to any later locale updates
+		Event::listen(function(LocaleUpdated $event){
+			static::setLocale($event->locale);
+		});
+		static::setLocale($locale ?? app()->getLocale());
+		static::$booted = true;
+	}
+
 	/**
 	 * Set to a custom closure if you want to modify locale received from app()->getLocale()
+	 * eg, the laravel local is called 'en' but you want to change it to 'en_US' for gettext use
 	 */
 	public static $localeGetter;
 
@@ -83,6 +75,7 @@ trait StartupAndLoad {
 	static $translator;
 
 	static $translators_emulated = [];
+
 	/**
 	 * Use native gettext php functions
 	 * Requires gettext installed, and is restrictive as you must also install
@@ -103,6 +96,10 @@ trait StartupAndLoad {
 		return static::$translator = $translator;
 	}
 
+	/**
+	 * Functions that use a domain argument, 
+	 * the index of the domain argument 
+	 */
 	static $emulatedDomainArgs = [
 		'dngettext' => 0,
 		'dgettext' => 0,
@@ -130,13 +127,11 @@ trait StartupAndLoad {
 
 	protected static function startupEmulatedShift($locale){
 		static::$started_emulated_list[] = $locale;
-		$limit = config('qgettext.max_emulated', null);
-		if (!isset($limit)){
-			return;
-		}
-		if ($limit >= count(static::$started_emulated_list)){
-			return;
-		}
+		$limit = config('qgettext.max_emulated', 0) ?? 0;
+
+		if (!$limit) return;
+		if ($limit >= count(static::$started_emulated_list)) return;
+
 		$shited = array_shift(static::$started_emulated_list);
 		unset(static::$translators_emulated[$shited]);
 	}
@@ -147,16 +142,18 @@ trait StartupAndLoad {
 
 	public static function loadNative($translator, $name, $arguments){
 		// If language is not yet used or changed, update it
-		if (static::$locale_native !== static::getLocale()){
+		if (!isset(static::$locale_native) || static::$locale_native !== static::getLocale()){
 			$translator->setLanguage(static::getLocale());
 			static::$locale_native = static::getLocale();
 		}
 	}
 
+	/** @var array flag for if the locale and domain is loaded */
 	static $loaded_emulated = [];
 
 	/**
 	 * Only loads domains as needed
+	 * @return bool
 	 */
 	public static function loadEmulated($translator, $name, $arguments){
 		$locale = static::getLocale();
@@ -166,9 +163,7 @@ trait StartupAndLoad {
 			return static::$loaded_emulated[$locale][$domain];
 		}
 		$file = config('qgettext.path') . DIRECTORY_SEPARATOR . $locale . "/LC_MESSAGES/" . $domain . ".mo";
-		if (!\File::exists($file)){
-			return static::$loaded_emulated[$locale][$domain] = false;
-		}
+		if (!\File::exists($file)) return static::$loaded_emulated[$locale][$domain] = false;
 
 		$loading = static::fromMo($file, $domain);
 		$arrayGenerator = new ArrayGenerator();

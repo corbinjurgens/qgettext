@@ -29,11 +29,11 @@ trait ScanAndSync {
 		}
 		$phpScanner = new PhpScanner(...$translations);
         $phpScanner->setDefaultDomain(static::getDefaultDomain());
-		$phpScanner->setFunctions(config('qgettext.scan.php_mapping') ?? config('qgettext.scan.mapping'));
+		$phpScanner->setFunctions(config('qgettext.scan.php_mapping', []) + config('qgettext.scan.mapping'));
 
 		$jsScanner = new JsScanner(...$translations);
         $jsScanner->setDefaultDomain(static::getDefaultDomain());
-		$jsScanner->setFunctions(config('qgettext.scan.js_mapping') ?? config('qgettext.scan.mapping'));
+		$jsScanner->setFunctions(config('qgettext.scan.js_mapping', []) + config('qgettext.scan.mapping'));
 
 		$finder = new Finder();
         $finder->files()->in(config('qgettext.scan.in', base_path()))->name(config('qgettext.scan.pattern', '*.php'));

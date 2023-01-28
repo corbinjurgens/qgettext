@@ -48,7 +48,7 @@ class Scan extends Command
         $this->info("Complete");
       }
     }else if ($mode == "sync"){
-      QGetText::sync();// TODO
+      //QGetText::sync();// TODO
       QGetText::dump();
     }else if ($mode == "dump"){
       QGetText::dump();

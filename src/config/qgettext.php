@@ -1,26 +1,30 @@
 <?php
 return [
-	//--------
-	// User
-	//--------
+	'source_locale' => 'en_US',// the language used throughout your html and code
+	'default_domain' => 'messages',// default domain from the list of domains
+	'domains' => [
+		'messages'
+	],
 
-	// Use a different identifier for this site to keep track of its translations. Otherwise app.name setting will be used
-	// This is good if your app.name is differing between enviroments, or will change. 
-	//'identifier' => 'site',
-
+	// Whether to use "emulated" mode which uses a different package to manage gettext,
+	// or to use "native" mode which uses php's built in gettext functions
+	// Emulated is the default because native causes issues sometimes
+	// 	(such as needing to have the language installed on linux for it to work, or the correct language not showing)
 	'mode' => Corbinjurgens\QGetText\QGetTextContainer::EMULATED_MODE,
-	'max_emulated' => 3,// Max number of loaded languages at one time to prevent loading too many languages in memory. Set null to have no limit.
-	'source_locale' => 'en_US',
-	'default_domain' => 'messages',
+	'max_emulated' => 3,// Max number of loaded languages at one time to prevent loading too many languages in memory. Only applies to emulated mode. Set 0 to have no limit.
+
 	// Where to load the current sites translations from and were to save to when syncing
 	// Note when using this package with git you should create the path folder used with some kind of gitignore so when
 	// you sync you dont keep changing files
-	'path' => resource_path('locale'),// without trailing slash
-	'domains' => [
-		'messages',
-		'db'
-	],
+	'path' => resource_path('locale'),
+
 	'scan' => [
+		// folders to look to scan for text
+		'in' => [
+			base_path('app'), 
+			base_path('resources'),
+			base_path('routes')
+		],
 		// file extentions that require some kind of processing before scanning and rely on either php of js scanner
 		'custom' => [
 			'.blade.php' => \Corbinjurgens\QGetText\Blade::class,
@@ -33,12 +37,6 @@ return [
 		'js' => [
 			'.js',
 			'.ts',
-		],
-		// folders to look for files
-		'in' => [
-			base_path('app'), 
-			base_path('resources'),
-			base_path('routes')
 		],
 		// what file names to look for
 		'pattern' => [
@@ -59,6 +57,7 @@ return [
 			'dnp' => 'dnpgettext',
 			'noop' => 'gettext',
 		],
+		// if js or php uses different function you may specify
 		//'js_mapping' => []
 		//'php_mapping' => []
 	],
