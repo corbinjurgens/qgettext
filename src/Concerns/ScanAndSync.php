@@ -35,6 +35,7 @@ trait ScanAndSync {
         $jsScanner->setDefaultDomain(static::getDefaultDomain());
 		$jsScanner->setFunctions(config('qgettext.scan.js_mapping', []) + config('qgettext.scan.mapping'));
 
+		// Files to look in
 		$finder = new Finder();
         $finder->files()->in(config('qgettext.scan.in', base_path()))->name(config('qgettext.scan.pattern', '*.php'));
 		
@@ -70,8 +71,8 @@ trait ScanAndSync {
         }
 
 		$disk = static::disk("local")->shiftBase('base');
-		if (!$disk->exists('')) $disk->makeDirectory('');
-		//dd($translations);//TEST
+		if (!$disk->exists()) $disk->makeDirectory();
+
         foreach ($translations as $translation) {
 			static::exampleSetHeaders($translation);////TEST
 			$domain = $translation->getDomain();
@@ -79,9 +80,9 @@ trait ScanAndSync {
 			static::toPo($translation, $disk->path());
         }
 
-		static::uploadBase();
+		static::scanComplete($translations);
 
-		return $disk->clearFile()->path('');
+		return $disk->clearFile()->path();
 
 	}
 
@@ -93,22 +94,8 @@ trait ScanAndSync {
 	/** 
 	 * Upload current sites base 
 	 */
-	public static function uploadBase(){
-		$disk = static::disk('shared')->shiftBase(static::thisSite());
-
-		$uploaded = [];
-		$local = static::disk('local')->shiftBase('base')->setFile('');
-		foreach($local->_files() as $file){
-			$key = basename($file->path());
-			$uploaded[$key] = true;
-			$disk->put($key, $file->readStream());
-		}
-
-		foreach($disk->_allFiles('') as $file){
-			if (!isset($uploaded[basename($file->path())])){
-				$file->delete();
-			}
-		}
+	public static function scanComplete($translations){
+		// 
 	}
 
 

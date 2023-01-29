@@ -56,7 +56,7 @@ trait Paths {
 			var $type;
 			var $disk;
 			var $base = '';
-			var $file;
+			var $file = '';
 			public function clone(){
 				return clone $this;
 			}
@@ -75,13 +75,14 @@ trait Paths {
 
 			/**
 			 * The target file, if set it will be used when calling all disk functions, otherwise you need to pass
+			 * the path yourself
 			 */
-			public function setFile($path = null){
-				$this->file = $path;
+			public function setFile($path = ''){
+				$this->file = $path ?? '';
 				return $this;
 			}
 			public function clearFile(){
-				unset($this->file);
+				$this->file = '';
 				return $this;
 			}
 
@@ -90,31 +91,36 @@ trait Paths {
 			}
 
 			public function __call(string $name, array $arguments){
+				// Access disk directly, you will need to pass path yourself
 				if (strpos($name, 'raw') === 0){
 					$function = \Str::camel(substr($name, 3));
 					return $this->disk->{$function}(...$arguments);
 				}
-				// If using file, dont need to pass first argument
-				if (isset($this->file)){
-					array_unshift($arguments, $this->file);
-				}
-				if (isset($arguments[0])){
-					$arguments[0] = \QGetText::appendToPath($this->base, ($arguments[0] ?? ''));
-				}
+
+				// Add file to the beginning of the arguments, with the base also prepended if necessary
+				array_unshift($arguments, \QGetText::appendToPath($this->base, ($this->file ?? '')));
+
+				// Redirect a called function to a different function on this class
 				if (isset(static::$function_map[$name])){
-					list($func, $arg) = static::$function_map[$name];
-					//dd($func, $arg);
-					return $this->$func($name, $arguments, ...$arg);
+					list($func, $args) = static::$function_map[$name];
+					return $this->$func($arguments, ...$args);
 				}
 				return $this->disk->{$name}(...$arguments);
 			}
 
+			/**
+			 * Certain called functions should be overrided
+			 */
 			public static $function_map = [
-				'_files' => ['customFiles', ['files', true]],
-				'_allFiles' => ['customFiles', ['allFiles', true]],
+				'files' => ['customFiles', ['files', true]],
+				'allFiles' => ['customFiles', ['allFiles', true]],
 			];
 
-			public function customFiles($name, $arguments, ...$options){
+			/**
+			 * Get file list and wrap each in an instance of this class so its easy to 
+			 * do further actions on those files
+			 */
+			public function customFiles($arguments, ...$options){
 				list($func, $type) = $options;
 				$res = $this->disk->{$func}(...$arguments);
 				$base = $this->relativePath();

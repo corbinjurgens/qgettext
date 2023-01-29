@@ -31,7 +31,7 @@
         ],
 		"aliases":
 		{
-			"Quaip": "Corbinjurgens\\QGetText\\Facade"
+			"QGetText": "Corbinjurgens\\QGetText\\Facade"
 		}
     }
 }
