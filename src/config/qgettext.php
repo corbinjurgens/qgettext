@@ -1,6 +1,10 @@
 <?php
 return [
 	'source_locale' => 'en_US',// the language used throughout your html and code
+	'locales' => [
+		'en_US',
+		// add more here
+	],
 	'default_domain' => 'messages',// default domain from the list of domains
 	'domains' => [
 		'messages'
@@ -16,7 +20,8 @@ return [
 	// Where to load the current sites translations from and were to save to when syncing
 	// Note when using this package with git you should create the path folder used with some kind of gitignore so when
 	// you sync you dont keep changing files
-	'path' => resource_path('locale'),
+	'disk' => null,
+	'folder' => 'locale',
 
 	'scan' => [
 		// folders to look to scan for text
@@ -25,7 +30,7 @@ return [
 			base_path('resources'),
 			base_path('routes')
 		],
-		// file extentions that require some kind of processing before scanning and rely on either php of js scanner
+		// file extentions that require some kind of processing before scanning and rely on either php or js scanner
 		'custom' => [
 			'.blade.php' => \Corbinjurgens\QGetText\Blade::class,
 		],
@@ -33,7 +38,7 @@ return [
 		'php' => [
 			'.php',
 		],
-		// extensions to be processed as js files if you are using some kind of js framework with your laravel app
+		// extensions to be processed as js files
 		'js' => [
 			'.js',
 			'.ts',

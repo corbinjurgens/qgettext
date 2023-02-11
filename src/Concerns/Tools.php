@@ -8,48 +8,33 @@ trait Tools {
 		return config('app.name');
 	}
 
-	protected static function strpostFind($array, $search = "UPDATED:"){
-		foreach($array as $item){
-			if (strpos($item, $search) === 0){
-				return $item;
+	public static function walkPaths(...$paths){
+		$result = [];
+		foreach($paths as $path){
+			if (!is_string($path)){
+				continue;
 			}
-		}
-		return false;
-	}
-
-	protected static function strpostCount($array, $search = "UPDATED:"){
-		$count = 0;
-		foreach($array as $item){
-			if (strpos($item, $search) === 0){
-				$count++;
-			}
-		}
-		return $count;
-	}
-
-	protected static function strpostMax($array, $search = "UPDATED:"){
-		$max = 0;
-		foreach($array as $item){
-			if (strpos($item, $search) === 0){
-				$current = explode(":", $item, 3);
-				if (isset($current[1]) && is_numeric($current[1])){
-					$current_num = (int) $current[1];
-					if ($current_num > $max){
-						$max = $current_num;
-					}
+			$explode = explode(DIRECTORY_SEPARATOR, $path);
+			foreach($explode as $bit){
+				if ($bit === '') continue;
+				if ($bit === '.') continue;
+				if ($bit === '..'){
+					if (empty($result)) throw new \Exception("You can't go back any more");
+					array_pop($result);
+					continue;
 				}
+				$result[] = $bit;
 			}
 		}
-		return $max;
+		return join(DIRECTORY_SEPARATOR, $result);
 	}
-
 	public static function appendToPath(...$paths){
 		$result = [];
 		foreach($paths as $path){
 			if (!is_string($path)){
 				continue;
 			}
-			if ($path === ""){
+			if ($path === "" || $path === DIRECTORY_SEPARATOR){
 				continue;
 			}
 			$result[] = trim($path, DIRECTORY_SEPARATOR);

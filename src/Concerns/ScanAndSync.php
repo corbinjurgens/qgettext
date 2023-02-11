@@ -13,19 +13,15 @@ use Symfony\Component\Finder\Finder;
 trait ScanAndSync {
 
 	/**
-	 * Scan this sites files and upload the results to the shared location
-	 * ready to be edited via the UI either on this site or elsewhere that has
-	 * access to the shared location
+	 * Scan code for translations
 	 * 
-	 * for now only possible to run from an artisan command due to merging changes
+	 * @return Gettext\Translations[]
 	 */
-	public static function scan($command = null){
-
-		static::syncBase();
+	public static function scan(){
 
 		$translations = [];
 		foreach(config('qgettext.domains') as $domain){
-			$translations[] = Translations::create($domain);
+			$translations[] = Translations::create($domain, config('qgettext.source_locale'));
 		}
 		$phpScanner = new PhpScanner(...$translations);
         $phpScanner->setDefaultDomain(static::getDefaultDomain());
@@ -37,7 +33,7 @@ trait ScanAndSync {
 
 		// Files to look in
 		$finder = new Finder();
-        $finder->files()->in(config('qgettext.scan.in', base_path()))->name(config('qgettext.scan.pattern', '*.php'));
+        $finder->files()->in(config('qgettext.scan.in', base_path()))->name(config('qgettext.scan.pattern', '.php'));
 		
         foreach($finder as $file){
 			$filepath = $file->getRealPath();
@@ -45,9 +41,13 @@ trait ScanAndSync {
 			// used for blade files to first parse into raw php, then check
 			foreach(config('qgettext.scan.custom', []) as $key => $value){
 				if (\Str::endsWith($filepath, $key)){
-					$custom_class = new $value();
-					$custom_class->loadScanners($phpScanner, $jsScanner);
-					$custom_class->scanFile($filepath);
+					try{
+						$custom_class = new $value();
+						$custom_class->loadScanners($phpScanner, $jsScanner);
+						$custom_class->scanFile($filepath);
+					}catch(\Throwable $e){
+						\Log::error($e);
+					}
 					continue 2;
 				}
 			}
@@ -55,7 +55,12 @@ trait ScanAndSync {
 			// php scanner
 			foreach(config('qgettext.scan.php', []) as $value){
 				if (\Str::endsWith($filepath, $value)){
-					$phpScanner->scanFile($filepath);
+					try{
+						$phpScanner->scanFile($filepath);
+					}catch(\Throwable $e){
+						\Log::error($e);
+					}
+					
 					break;
 				}
 			}
@@ -63,27 +68,19 @@ trait ScanAndSync {
 			// js scanner
 			foreach(config('qgettext.scan.js', []) as $value){
 				if (\Str::endsWith($filepath, $value)){
-					$jsScanner->scanFile($filepath);
+					try{
+						$jsScanner->scanFile($filepath);
+					}catch(\Throwable $e){
+						\Log::error($e);
+					}
+					
 					break;
 				}
 			}
 			
         }
 
-		$disk = static::disk("local")->shiftBase('base');
-		if (!$disk->exists()) $disk->makeDirectory();
-
-        foreach ($translations as $translation) {
-			static::exampleSetHeaders($translation);////TEST
-			$domain = $translation->getDomain();
-			$disk->setFile("$domain.po");
-			static::toPo($translation, $disk->path());
-        }
-
-		static::scanComplete($translations);
-
-		return $disk->clearFile()->path();
-
+		return $translations;
 	}
 
 	public static function exampleSetHeaders(Translations $translations){
@@ -91,24 +88,13 @@ trait ScanAndSync {
 		$translations->getHeaders()->setPluralForm(2, "(n != 1)");
 	}
 
-	/** 
-	 * Upload current sites base 
-	 */
-	public static function scanComplete($translations){
-		// 
-	}
-
-
-
-
-
 
 	/**
 	 * Compare old and new translation state,
 	 * if passing $command from a artisan command, it will use that to
 	 * ask user which new translation equates to old
 	 */
-	public static function compare($translations_new, $translations_existing, $command = null){
+	public static function compare(Translations $translations_new, Translations $translations_existing, $command = null){
 		$trans_new = $translations_new->getTranslations();
 		$trans_new_only = [];
 		$trans_existing = $translations_existing->getTranslations();
@@ -263,6 +249,9 @@ trait ScanAndSync {
 	 * Download current sites base
 	 */
 	public static function syncBase(){
+
+		return;
+
 		$path = static::disk('local');
 		$path->deleteDirectory('base');
 
