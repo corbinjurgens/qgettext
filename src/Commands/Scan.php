@@ -49,7 +49,7 @@ class Scan extends Command
       }
     }else if ($mode == "sync"){
       //QGetText::sync();// TODO
-      QGetText::dump();
+      QGetText::sync($this);
     }else if ($mode == "dump"){
       QGetText::dump();
       $this->info("Po converted to Mo");

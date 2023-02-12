@@ -3,19 +3,107 @@
 namespace Corbinjurgens\QGetText\Concerns;
 
 use Corbinjurgens\QGetText\Concerns\CustomTranslations as Translations;
+use Gettext\Translations as BaseTranslations;
 use Gettext\Translation;
 
 use Gettext\Scanner\PhpScanner;
 use Gettext\Scanner\JsScanner;
 use Gettext\Merge;
+use Illuminate\Console\Command;
 use Symfony\Component\Finder\Finder;
 
 trait ScanAndSync {
 
 	/**
+	 * @param BaseTranslations[] $translations;
+	 */
+	public static function keyByDomain($translations){
+		$result = [];
+		/** @var BaseTranslations */
+		foreach($translations as $translation){
+			$result[$translation->getDomain()] = $translation;
+		}
+		return $result;
+	}
+
+	public static function sync(Command $command = null){
+		$translations_new = static::keyByDomain(static::scan());
+		$translations_existing = static::keyByDomain(static::current());
+		$domains = array_values(array_unique(array_merge(array_keys($translations_new), array_keys($translations_new))));
+		if (isset($command) && !empty($translations_existing)){
+			foreach($domains as $domain){
+				if (!isset($translations_existing[$domain])) continue;
+
+				list($new_only, $existing_only) = static::compare($translations_new[$domain], $translations_existing[$domain]);
+				$map = static::merge($translations_new[$domain],$translations_existing[$domain], $new_only, $existing_only, $command);
+				if ($map){
+					static::shift($translations_new[$domain], $map);
+					static::shiftCompare($map, $domain);
+				}
+			}
+		}
+		static::update($translations_new);
+	}
+
+	/**
+	 * @param \Gettext\Translations[] $translations
+	 */
+	public static function update($translations){
+		$disk = static::disk();
+		foreach(config('qgettext.locales') as $locale){
+			$locale_folder = $disk->cd($locale);
+			if (!$locale_folder->exists()) $locale_folder->makeDirectory();
+			foreach($translations as $translation){
+				$domain_file = $locale_folder->file($translation->getDomain() . '.po');
+				
+				if ($domain_file->exists()){
+					$locale_translations = $translation->mergeWith(static::fromPo($domain_file->path()));
+				}else{
+					$locale_translations = (clone $translation)->setLanguage($locale);
+				}
+
+				static::toPo($locale_translations, $domain_file->path());
+			}
+		}
+		$base_folder = $disk->cd('base');
+		if (!$base_folder->exists()) $base_folder->makeDirectory();
+		foreach($translations as $translation){
+			$domain_file = $base_folder->file($translation->getDomain() . '.po');
+
+			static::toPo($translation, $domain_file->path());
+		}
+	}
+
+	public static function shift(BaseTranslations $translations, $map = []){
+		$disk = static::disk();
+		foreach(config('qgettext.locales') as $locale){
+			$locale_folder = $disk->cd($locale);
+			if (!$locale_folder->exists()) $locale_folder->makeDirectory();
+			$domain_file = $locale_folder->file($translations->getDomain() . '.po');
+
+			if ($domain_file->exists()){
+				$current_translations = static::fromPo($domain_file->path());
+				foreach($map as $old_id => $new_id){
+					$old_translation_array = $current_translations->getTranslations();
+					if (!isset($old_translation_array[$old_id])) continue;
+
+					$old_translation = $old_translation_array[$old_id];
+					list($context, $original) = explode("\004", $new_id);
+        			$new_translation = Translation::create($context, $original);
+					$current_translations->remove($old_translation);
+					$new_translation = $new_translation->mergeWith($old_translation);
+					$current_translations->add($new_translation);
+				}
+				static::toPo($current_translations, $domain_file->path());
+			}
+
+		}
+	}
+
+	/**
 	 * Scan code for translations
 	 * 
-	 * @return Gettext\Translations[]
+	 * @return \Gettext\Translations[]
 	 */
 	public static function scan(){
 
@@ -83,18 +171,19 @@ trait ScanAndSync {
 		return $translations;
 	}
 
-	public static function exampleSetHeaders(Translations $translations){
+	public static function exampleSetHeaders(BaseTranslations $translations){
 		$translations->setLanguage('de');
 		$translations->getHeaders()->setPluralForm(2, "(n != 1)");
 	}
 
 
 	/**
-	 * Compare old and new translation state,
-	 * if passing $command from a artisan command, it will use that to
-	 * ask user which new translation equates to old
+	 * Compare old and new translation key state
+	 * Finds what keys are only in new, and what are only in existing
+	 * 
+	 * @return array
 	 */
-	public static function compare(Translations $translations_new, Translations $translations_existing, $command = null){
+	public static function compare(BaseTranslations $translations_new, BaseTranslations $translations_existing){
 		$trans_new = $translations_new->getTranslations();
 		$trans_new_only = [];
 		$trans_existing = $translations_existing->getTranslations();
@@ -106,12 +195,22 @@ trait ScanAndSync {
 
 		$trans_existing_only = [];
 		foreach($trans_existing as $k => $v){
-			$trans_existing_only[] = $k;
+			if (!isset($trans_new[$k])){
+				$trans_existing_only[] = $k;
+			}
 		}
 		
-		if (!isset($command)){
-			return [$trans_existing_only, $trans_new_only];
-		}
+		return [$trans_new_only, $trans_existing_only];
+	}
+
+	/**
+	 * Returns an array of old translation to new tranlsation
+	 * 
+	 * @return array 
+	 */
+	public static function merge(BaseTranslations $translations_new, BaseTranslations $translations_existing, $trans_new_only, $trans_existing_only, Command $command){
+		$trans_new = $translations_new->getTranslations();
+		$trans_existing = $translations_existing->getTranslations();
 
 		// Command
 		$results = [];
@@ -121,11 +220,11 @@ trait ScanAndSync {
 		}
 		$total = count($looper);
 		$current = 1;
-		$command->info("Beginning merge process");
+		$command->info("There are new texts in your base code. Beginning merge process");
 		$command->info("Be sure to carefully check if any of the 'new' texts are actually changed text");
 		$command->comment("-------");
 		while(($new = array_shift($looper)) !== null){
-			$command->comment("$current of $total");
+			$command->comment("Text $current of $total");
 			$command->info("See the following new text:");
 			$command->newLine();
 			$command->line($new);
@@ -137,12 +236,17 @@ trait ScanAndSync {
 				$command->line($old);
 			}
 
-			$res = $command->ask("Or is it unrelated? Enter the number or press enter to skip this text...\nTo view current texts references, enter 'info', or 'info 1' to view a specific previous text. Enter 'skip' to skip all");
+			$res = $command->ask("Or is it unrelated? Enter the number of the old text that it equates to, or press enter to proceed as is...");
 			while(!is_numeric($res)){
 				if (!$res){
 					$current++;
 					continue 2;
 				}
+				if ($res === 'help'){
+					$command->info("To view current texts references, enter 'info', or 'info 1' to view a specifc text. Enter 'skip' to skip all if you know there are no changed texts");
+					continue;
+				}
+
 				if ($res === "skip"){
 					return [];
 				}
@@ -212,25 +316,24 @@ trait ScanAndSync {
 		}
 		$command->info("All done");
 		return $results;
-		
-
 	}
 
 	/**
 	 * Take a changes array (old key => new key)
 	 */
-	public static function updateCompare($changes, $domain){
-		static::updateData(function($data) use ($changes, $domain){
+	public static function shiftCompare($changes, $domain){
+		static::shiftData(function($data) use ($changes, $domain){
 			if (!isset($data['domains'][$domain]['changes'])) $data['domains'][$domain]['changes'] = [];
 			$data['domains'][$domain]['changes'][] = $changes;
 			return $data;
 		});
 	}
 
-	public static function updateData($closure, $disk = null){
-		$disk = $disk ?? static::disk('local')->shiftBase('base')->setFile("data.json");
-		$contents = $closure($disk->exists() ? json_decode($disk->get(), true) : []);
-		$disk->put(json_encode($contents));
+	public static function shiftData($closure, $disk = null){
+		if (!static::disk()->cd('base')->exists()) static::disk()->cd('base')->makeDirectory();
+		$file = $file ?? static::disk()->cd('base')->file("data.json");
+		$contents = $closure($file->exists() ? json_decode($file->get(), true) : []);
+		$file->put(json_encode($contents));
 	}
 
 	protected static function outputInfo($translation){
@@ -246,76 +349,45 @@ trait ScanAndSync {
 	}
 
 	/**
-	 * Download current sites base
+	 * @return \Gettext\Translations[]
 	 */
-	public static function syncBase(){
+	public static function current(){
+		$translations = [];
+		$disk = static::disk();
+		if (!$disk->folder('base')->exists()) return $translations;
 
-		return;
-
-		$path = static::disk('local');
-		$path->deleteDirectory('base');
-
-		$shared = static::disk('shared')->shiftBase(static::thisSite());
-
-		foreach($shared->allFiles('') as $file){
-			$stream = $shared->rawReadStream($file);
-			$relativePath = basename($file);
-			$path->put("base/$relativePath", $stream);
-		}
-	}
-
-	/**
-	 * When uploading, check if there hasnt been another person editing, then update
-	 */
-	public static function timeCheck(){
-		$result = null;
-		$time = null;
-		$shared = static::disk('shared')->shiftBase(static::thisSite())->setFile('data.json');
-
-		if ($shared->exists()){
-			$data = json_decode($shared->get(), true);
-			if (isset($data['updated'])) $time = \Carbon\Carbon::parse($data['updated']);
+		foreach((new Finder())->files()->in($disk->folder('base')->path()) as $file){
+			$domain = pathinfo($file->getRelativePathname(), PATHINFO_FILENAME);
+			$translations[] = static::fromPo($file->getRealPath(), $domain);
 		}
 
-		static::updateData(function($data) use ($time, &$result){
-			if (isset($data['updated'])){
-				$compare = \Carbon\Carbon::parse($data['updated']);
-				if (!$time->eq($compare)) {
-					$result = false;
-					return $data;
-				}
-			}
-			$data['updated'] = \Carbon\Carbon::now()->timestamp;
-			return $data;
-			
-		});
-		return $result ?? true;
+		return $translations;
 	}
 
 	/**
 	 * Look at files in current sites locale, and save po to mo
 	 */
 	public static function dump(){
-		$disk = static::disk('local');
-		foreach((new Finder())->files()->in($disk->path('base')) as $file){
+		$disk = static::disk();
+		foreach((new Finder())->files()->in($disk->folder('base')->path()) as $file){
 			$domain = pathinfo($file->getRelativePathname(), PATHINFO_FILENAME);
-			$baseTranslations = static::fromPo($file->getRealPath());
+			$baseTranslations = static::fromPo($file->getRealPath(), $domain);
 
-			foreach((new Finder())->directories()->in(static::path())->exclude('base')->depth(0) as $file){
+			foreach((new Finder())->directories()->in($disk->path())->exclude('base')->depth(0) as $file){
 
 				$locale = $file->getRelativePathname();
-				$disk->shiftBase($locale, 'LC_MESSAGES');
-				if (!$disk->exists('')) $disk->makeDirectory('');
+				$LC_MESSAGES = $disk->cd("$locale/LC_MESSAGES");
+				if (!$LC_MESSAGES->exists()) $LC_MESSAGES->makeDirectory();
 
-				if ($disk->exists($domain . ".po")){
-					$targetTranslations = static::fromPo($disk->path($domain . '.po'));
+				if ($LC_MESSAGES->file($domain . ".po")->exists()){
+					$targetTranslations = static::fromPo($LC_MESSAGES->file($domain . '.po', $domain)->path());
 					$targetTranslations = $targetTranslations->mergewith($baseTranslations, Merge::HEADERS_THEIRS | Merge::FLAGS_THEIRS | Merge::TRANSLATIONS_OURS);
 				}else{
 					$targetTranslations = $baseTranslations;
 				}
 
-				static::toPo($targetTranslations, $disk->path($domain . '.po'));
-				static::toMo($targetTranslations, $disk->path($domain . '.mo'));
+				static::toPo($targetTranslations, $LC_MESSAGES->file($domain . '.po')->path());
+				static::toMo($targetTranslations, $LC_MESSAGES->file($domain . '.mo')->path());
 			}
 		}
 		

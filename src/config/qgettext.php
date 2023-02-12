@@ -2,8 +2,8 @@
 return [
 	'source_locale' => 'en_US',// the language used throughout your html and code
 	'locales' => [
-		'en_US',
-		// add more here
+		// add locales other than you source locale here
+		'ja_JP'
 	],
 	'default_domain' => 'messages',// default domain from the list of domains
 	'domains' => [
