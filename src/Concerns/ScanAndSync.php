@@ -51,10 +51,10 @@ trait ScanAndSync {
 	public static function update($translations){
 		$disk = static::disk();
 		foreach(config('qgettext.locales') as $locale){
-			$locale_folder = $disk->cd($locale);
-			if (!$locale_folder->exists()) $locale_folder->makeDirectory();
+			$LC_MESSAGES = $disk->folder("$locale/LC_MESSAGES");
+			if (!$LC_MESSAGES->exists()) $LC_MESSAGES->makeDirectory();
 			foreach($translations as $translation){
-				$domain_file = $locale_folder->file($translation->getDomain() . '.po');
+				$domain_file = $LC_MESSAGES->file($translation->getDomain() . '.po');
 				
 				if ($domain_file->exists()){
 					$locale_translations = $translation->mergeWith(static::fromPo($domain_file->path()));
@@ -65,7 +65,7 @@ trait ScanAndSync {
 				static::toPo($locale_translations, $domain_file->path());
 			}
 		}
-		$base_folder = $disk->cd('base');
+		$base_folder = $disk->folder('base');
 		if (!$base_folder->exists()) $base_folder->makeDirectory();
 		foreach($translations as $translation){
 			$domain_file = $base_folder->file($translation->getDomain() . '.po');
@@ -77,26 +77,15 @@ trait ScanAndSync {
 	public static function shift(BaseTranslations $translations, $map = []){
 		$disk = static::disk();
 		foreach(config('qgettext.locales') as $locale){
-			$locale_folder = $disk->cd($locale);
-			if (!$locale_folder->exists()) $locale_folder->makeDirectory();
-			$domain_file = $locale_folder->file($translations->getDomain() . '.po');
+			$LC_MESSAGES = $disk->folder("$locale/LC_MESSAGES");
+			if (!$LC_MESSAGES->exists()) $LC_MESSAGES->makeDirectory();
+			$domain_file = $LC_MESSAGES->file($translations->getDomain() . '.po');
 
 			if ($domain_file->exists()){
 				$current_translations = static::fromPo($domain_file->path());
-				foreach($map as $old_id => $new_id){
-					$old_translation_array = $current_translations->getTranslations();
-					if (!isset($old_translation_array[$old_id])) continue;
-
-					$old_translation = $old_translation_array[$old_id];
-					list($context, $original) = explode("\004", $new_id);
-        			$new_translation = Translation::create($context, $original);
-					$current_translations->remove($old_translation);
-					$new_translation = $new_translation->mergeWith($old_translation);
-					$current_translations->add($new_translation);
-				}
+				$current_translations->remap($map);
 				static::toPo($current_translations, $domain_file->path());
 			}
-
 		}
 	}
 
@@ -121,7 +110,7 @@ trait ScanAndSync {
 
 		// Files to look in
 		$finder = new Finder();
-        $finder->files()->in(config('qgettext.scan.in', base_path()))->name(config('qgettext.scan.pattern', '.php'));
+        $finder->files()->in(config('qgettext.scan.in', base_path()))->name(config('qgettext.scan.pattern', '*.php'));
 		
         foreach($finder as $file){
 			$filepath = $file->getRealPath();
@@ -330,8 +319,8 @@ trait ScanAndSync {
 	}
 
 	public static function shiftData($closure, $disk = null){
-		if (!static::disk()->cd('base')->exists()) static::disk()->cd('base')->makeDirectory();
-		$file = $file ?? static::disk()->cd('base')->file("data.json");
+		if (!static::disk()->folder('base')->exists()) static::disk()->folder('base')->makeDirectory();
+		$file = $file ?? static::disk()->folder('base')->file("data.json");
 		$contents = $closure($file->exists() ? json_decode($file->get(), true) : []);
 		$file->put(json_encode($contents));
 	}
@@ -356,7 +345,7 @@ trait ScanAndSync {
 		$disk = static::disk();
 		if (!$disk->folder('base')->exists()) return $translations;
 
-		foreach((new Finder())->files()->in($disk->folder('base')->path()) as $file){
+		foreach((new Finder())->files()->in($disk->folder('base')->path())->name('*.po') as $file){
 			$domain = pathinfo($file->getRelativePathname(), PATHINFO_FILENAME);
 			$translations[] = static::fromPo($file->getRealPath(), $domain);
 		}
@@ -369,28 +358,15 @@ trait ScanAndSync {
 	 */
 	public static function dump(){
 		$disk = static::disk();
-		foreach((new Finder())->files()->in($disk->folder('base')->path()) as $file){
-			$domain = pathinfo($file->getRelativePathname(), PATHINFO_FILENAME);
-			$baseTranslations = static::fromPo($file->getRealPath(), $domain);
+		foreach(config('qgettext.locales') as $locale){
+			$LC_MESSAGES = $disk->folder("$locale/LC_MESSAGES");
+			if (!$LC_MESSAGES->exists()) continue;
 
-			foreach((new Finder())->directories()->in($disk->path())->exclude('base')->depth(0) as $file){
-
-				$locale = $file->getRelativePathname();
-				$LC_MESSAGES = $disk->cd("$locale/LC_MESSAGES");
-				if (!$LC_MESSAGES->exists()) $LC_MESSAGES->makeDirectory();
-
-				if ($LC_MESSAGES->file($domain . ".po")->exists()){
-					$targetTranslations = static::fromPo($LC_MESSAGES->file($domain . '.po', $domain)->path());
-					$targetTranslations = $targetTranslations->mergewith($baseTranslations, Merge::HEADERS_THEIRS | Merge::FLAGS_THEIRS | Merge::TRANSLATIONS_OURS);
-				}else{
-					$targetTranslations = $baseTranslations;
-				}
-
-				static::toPo($targetTranslations, $LC_MESSAGES->file($domain . '.po')->path());
-				static::toMo($targetTranslations, $LC_MESSAGES->file($domain . '.mo')->path());
+			foreach((new Finder())->files()->in($LC_MESSAGES->path())->name('*.po') as $file){
+				$domain = pathinfo($file->getRelativePathname(), PATHINFO_FILENAME);
+				static::toMo(static::fromPo($file->getRealPath(), $domain), $LC_MESSAGES->file($domain . '.mo')->path());
 			}
 		}
-		
 	}
 
 }

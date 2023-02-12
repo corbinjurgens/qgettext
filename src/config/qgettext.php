@@ -1,5 +1,6 @@
 <?php
 return [
+	'name' => null, // when uploading the language to your cloud. If null, it will use app.name instead
 	'source_locale' => 'en_US',// the language used throughout your html and code
 	'locales' => [
 		// add locales other than you source locale here
